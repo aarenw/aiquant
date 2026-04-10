@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "ibkr-mcp": {
+      "command": "uv",
+      "args": ["run", "python", "-m", "ibkr_mcp.main"],
+      "cwd": ".",
+      "env": {
+        "IB_CLIENT_ID": "123",
+        "IB_HOST": "127.0.0.1",
+        "IB_PORT": "7497"
+      }
+    }
+  }
+}

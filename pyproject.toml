@@ -1,0 +1,12 @@
+[project]
+name = "aiquant"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "ibkr-mcp",
+]
+
+[tool.uv.sources]
+ibkr-mcp = { path = "../ibkr_mcp", editable = true }

@@ -1,4 +1,8 @@
-"""模型评估"""
+"""模型评估
+
+在测试集（或任意 DataLoader）上运行推理，计算分类指标。
+支持直接传入模型或从 checkpoint 文件加载后评估。
+"""
 
 from __future__ import annotations
 
@@ -22,12 +26,17 @@ def evaluate_model(
     data_loader: DataLoader,
     device: torch.device,
 ) -> tuple[ClassificationMetrics, np.ndarray, np.ndarray]:
-    """在给定数据集上评估模型。
+    """在给定数据集上评估模型性能。
+
+    Args:
+        model:       已加载权重的模型（需已移至 device）
+        data_loader: 数据集 DataLoader
+        device:      推理设备
 
     Returns:
-        metrics: 分类指标
-        y_true: 真实标签
-        y_pred: 预测标签
+        metrics: 分类指标汇总
+        y_true:  真实标签数组
+        y_pred:  预测标签数组
     """
     model.eval()
     all_preds = []
@@ -36,6 +45,7 @@ def evaluate_model(
     for X, y in data_loader:
         X = X.to(device)
         logits = model(X)
+        # 取 logits 最大值对应类别作为预测结果
         preds = logits.argmax(dim=1).cpu().numpy()
         all_preds.append(preds)
         all_labels.append(y.numpy())
@@ -53,6 +63,17 @@ def evaluate_from_checkpoint(
     data_loader: DataLoader,
     device: torch.device,
 ) -> tuple[ClassificationMetrics, np.ndarray, np.ndarray]:
+    """从 checkpoint 文件加载权重后评估模型。
+
+    Args:
+        model:           模型实例（结构需与 checkpoint 匹配）
+        checkpoint_path: checkpoint 文件路径
+        data_loader:     数据集 DataLoader
+        device:          推理设备
+
+    Returns:
+        与 evaluate_model 相同
+    """
     load_checkpoint(checkpoint_path, model, device=device)
     model.to(device)
     return evaluate_model(model, data_loader, device)

@@ -1,15 +1,16 @@
 """数据预处理：标签创建、标准化、滑动窗口序列、时间分割
 
 处理流程：
-  1. create_trend_labels()  → 根据未来 N 日收益率生成三分类标签
+  1. create_trend_labels()  → 根据未来 N 日收益率生成三分类标签（ATR 自适应阈值）
   2. rolling_zscore_normalize() → 滚动 Z-score 标准化（无前视偏差）
   3. create_sequences()     → 滑动窗口生成 (seq_len, n_features) 序列
   4. time_based_split()     → 按时间切分 train/val/test（非随机切分）
 
-标签定义（horizon=5天，threshold=1%）：
-  - UP (2)：     future_return > +1%
-  - SIDEWAYS (1)：-1% ≤ future_return ≤ +1%
-  - DOWN (0)：   future_return < -1%
+标签定义（horizon=5天，ATR 自适应阈值）：
+  - UP (2)：     future_return > atr_k × ATR_norm
+  - SIDEWAYS (1)：|future_return| ≤ atr_k × ATR_norm
+  - DOWN (0)：   future_return < -atr_k × ATR_norm
+  当 high/low 不可用时退回固定 threshold=1%
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
+import talib
 
 from aiquant.config import DataConfig
 
@@ -31,27 +33,50 @@ class TrendLabel:
 
 
 def create_trend_labels(
-    close: pd.Series, horizon: int = 5, threshold: float = 0.01
+    close: pd.Series,
+    high: pd.Series | None = None,
+    low: pd.Series | None = None,
+    horizon: int = 5,
+    threshold: float = 0.01,
+    atr_k: float = 0.5,
 ) -> pd.Series:
     """根据未来 horizon 天的收益率创建趋势标签。
 
-    使用 shift(-horizon) 向前看 horizon 天，末尾 horizon 行因无未来数据
-    设为 -1（invalid），后续流程会过滤掉这些样本。
+    当提供 high/low 时使用 ATR 自适应阈值：每个时间步的阈值 = atr_k × (ATR/close)，
+    最低不低于 0.5%，避免低波动时段产生过多噪声标签。
+    否则退回固定 threshold。
 
     Args:
         close:     收盘价 Series
+        high:      最高价 Series（可选，用于计算 ATR）
+        low:       最低价 Series（可选，用于计算 ATR）
         horizon:   预测时间跨度（交易日数）
-        threshold: 趋势判断阈值（上下各 threshold * 100%）
+        threshold: 固定阈值（当 high/low 为 None 时使用）
+        atr_k:     ATR 阈值系数（自适应阈值 = atr_k × ATR_norm）
 
     Returns:
         标签 Series：0=DOWN, 1=SIDEWAYS, 2=UP, -1=无效
     """
-    future_return = close.shift(-horizon) / close - 1
-    labels = pd.Series(TrendLabel.SIDEWAYS, index=close.index, dtype=np.int64)
-    labels[future_return > threshold] = TrendLabel.UP
-    labels[future_return < -threshold] = TrendLabel.DOWN
-    labels[future_return.isna()] = -1  # 末尾 horizon 行标记为无效
-    return labels
+    future_return = (close.shift(-horizon) / close - 1).values
+
+    if high is not None and low is not None:
+        atr = talib.ATR(
+            high.values.astype(np.float64),
+            low.values.astype(np.float64),
+            close.values.astype(np.float64),
+            timeperiod=14,
+        )
+        atr_norm = np.where(close.values != 0, atr / close.values, threshold)
+        # 每个时间步独立阈值，最低 0.5% 防止极低波动时全归 SIDEWAYS
+        thresh = np.maximum(atr_k * atr_norm, 0.005)
+    else:
+        thresh = np.full(len(close), threshold)
+
+    labels = np.full(len(close), TrendLabel.SIDEWAYS, dtype=np.int64)
+    labels[future_return > thresh] = TrendLabel.UP
+    labels[future_return < -thresh] = TrendLabel.DOWN
+    labels[np.isnan(future_return)] = -1  # 末尾 horizon 行标记为无效
+    return pd.Series(labels, index=close.index, dtype=np.int64)
 
 
 def rolling_zscore_normalize(
@@ -202,8 +227,11 @@ def prepare_single_stock(
     config = config or DataConfig()
 
     df = df.copy()
-    # 1. 根据未来 horizon 日收益率生成趋势标签
-    df["label"] = create_trend_labels(df["close"], config.horizon, config.trend_threshold)
+    # 1. 根据未来 horizon 日收益率生成趋势标签（ATR 自适应阈值）
+    df["label"] = create_trend_labels(
+        df["close"], df["high"], df["low"],
+        config.horizon, config.trend_threshold, config.atr_k,
+    )
     # 2. 滚动 Z-score 标准化特征列（不影响原始 OHLCV 和 label 列）
     df = rolling_zscore_normalize(df, feature_cols, config.norm_window)
 

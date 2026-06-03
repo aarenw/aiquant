@@ -1,6 +1,6 @@
 """特征工程管线：原始 OHLCV → 完整特征矩阵
 
-特征分为三类，合计约 33 列：
+特征分为四类，合计约 37 列：
 
 1. 价格衍生特征（~13 列）：
    - 对数收益率（1 列）
@@ -15,7 +15,12 @@
    RSI、MACD×3、布林带×2、ADX×3、ATR、随机指标×2、CCI、OBV变化率、
    Williams %R、ROC
 
-3. 时间特征（2 列）：
+3. 量价关系特征（3 列）：
+   - 量价一致性（price_vol_agree）：+1 量价同向，-1 量价背离
+   - 成交量动量（volume_momentum）：相对 5 日均量的偏离
+   - 短/长期波动率比（vol_ratio_5_20）：识别波动率扩张/收缩
+
+4. 时间特征（2 列）：
    - 星期（归一化到 [0, 1]）
    - 月份（归一化到 [0, 1]）
 """
@@ -77,6 +82,20 @@ def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
     # 20 日滚动对数收益率标准差，反映近期价格不确定性
     result["volatility_20"] = result["log_return"].rolling(20).std()
 
+    # ── 量价关系特征 ──────────────────────────────────────────────────────
+    # 量价一致性：价格与成交量方向是否一致（同向=趋势可靠，背离=趋势衰竭）
+    price_up = (c - c.shift(1)) > 0
+    vol_up = v > v.shift(1)
+    result["price_vol_agree"] = ((price_up == vol_up).astype(float) * 2 - 1)
+
+    # 成交量动量：当日成交量相对 5 日均量的偏离（量能加速为正，减速为负）
+    vol_ma5 = v.rolling(5).mean()
+    result["volume_momentum"] = (v - vol_ma5) / vol_ma5.where(vol_ma5 > 0, 1)
+
+    # 波动率比：5 日短期波动率 / 20 日长期波动率，>1 表示波动率正在扩张
+    vol_5 = result["log_return"].rolling(5).std()
+    result["vol_ratio_5_20"] = vol_5 / (result["volatility_20"] + 1e-8)
+
     # ── 时间特征 ──────────────────────────────────────────────────────────
     # 归一化到 [0, 1]，使模型感知周内/年内周期性规律
     if pd.api.types.is_datetime64_any_dtype(result["date"]):
@@ -97,7 +116,7 @@ def get_feature_columns(df: pd.DataFrame) -> list[str]:
         df: 经过 engineer_features 处理的 DataFrame
 
     Returns:
-        特征列名列表（约 33 列）
+        特征列名列表（约 34 列）
     """
     exclude = {"date", "open", "high", "low", "close", "volume", "average", "barCount"}
     return [col for col in df.columns if col not in exclude]

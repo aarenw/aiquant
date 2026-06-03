@@ -70,9 +70,15 @@ class Trainer:
             weight_decay=self.config.weight_decay,
         )
 
-        # 余弦退火学习率调度：T_0=10 轮一个周期，T_mult=2 使周期逐渐加倍
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingWarmRestarts(
-            self.optimizer, T_0=10, T_mult=2
+        # OneCycleLR：线性 warmup（前 10%）+ 余弦退火，无周期重启避免训练震荡
+        # 需在每个 batch 后调用 step()
+        self.scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            self.optimizer,
+            max_lr=self.config.lr,
+            epochs=self.config.max_epochs,
+            steps_per_epoch=len(train_loader),
+            pct_start=0.1,
+            anneal_strategy="cos",
         )
 
         # 交叉熵损失 + 类别权重 + 标签平滑
@@ -105,6 +111,7 @@ class Trainer:
                 self.model.parameters(), self.config.max_grad_norm
             )
             self.optimizer.step()
+            self.scheduler.step()  # OneCycleLR 在每个 batch 后更新
 
             total_loss += loss.item()
             n_batches += 1
@@ -158,7 +165,6 @@ class Trainer:
         for epoch in range(1, self.config.max_epochs + 1):
             train_loss = self._train_epoch()
             val_loss, val_metrics = self._validate()
-            self.scheduler.step()
 
             # 记录本轮指标
             self.history.train_losses.append(train_loss)

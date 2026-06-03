@@ -46,7 +46,8 @@ class DataConfig:
     use_rth: bool = True            # True=仅使用正常交易时段数据
     seq_len: int = 60               # 模型输入序列长度（交易日数）
     horizon: int = 5                # 预测未来 N 个交易日的趋势
-    trend_threshold: float = 0.01  # 趋势判断阈值：±1% 以外才算涨/跌
+    trend_threshold: float = 0.01  # 固定阈值回退值（ATR 不可用时使用）
+    atr_k: float = 0.5             # ATR 自适应阈值系数（阈值 = atr_k × ATR_norm）
     norm_window: int = 252          # 滚动 Z-score 标准化窗口（约1年）
     train_end: str = "2020-12-31"   # 训练集截止日期
     val_end: str = "2022-12-31"     # 验证集截止日期（之后为测试集）
@@ -59,8 +60,8 @@ class TrainConfig:
     max_epochs: int = 100           # 最大训练轮数
     lr: float = 1e-3                # 初始学习率
     weight_decay: float = 1e-4     # AdamW 权重衰减
-    patience: int = 10              # 早停耐心值（验证集 F1 连续不提升的轮数）
+    patience: int = 15              # 早停耐心值（验证集 F1 连续不提升的轮数）
     max_grad_norm: float = 1.0      # 梯度裁剪阈值
-    label_smoothing: float = 0.1   # 标签平滑系数，缓解过拟合
+    label_smoothing: float = 0.0   # 标签平滑系数（已禁用：信号弱时平滑会削弱学习）
     seed: int = 42                  # 随机种子，保证可复现
     device: torch.device = field(default_factory=get_device)

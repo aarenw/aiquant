@@ -1,5 +1,5 @@
-# Project data and model artifacts
-data/
+# Project data and model artifacts (root only — do not match aiquant/data/)
+/data/
 checkpoints/
 
 # Byte-compiled / optimized / DLL files

@@ -37,7 +37,7 @@ wheels = [
 [[package]]
 name = "aiquant"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
     { name = "ib-async" },
     { name = "ibkr-mcp" },

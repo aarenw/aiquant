@@ -132,9 +132,9 @@ if __name__ == "__main__":
     parser.add_argument("--max-epochs", type=int, default=100)
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--seq-len", type=int, default=60)
-    parser.add_argument("--d-model", type=int, default=64)
+    parser.add_argument("--d-model", type=int, default=128)
     parser.add_argument("--n-heads", type=int, default=4)
-    parser.add_argument("--n-layers", type=int, default=3)
+    parser.add_argument("--n-layers", type=int, default=4)
     parser.add_argument("--seed", type=int, default=42)
 
     args = parser.parse_args()

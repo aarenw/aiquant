@@ -120,16 +120,17 @@ class IBDataFetcher:
             logger.warning("%s 未返回数据", symbol)
             return pd.DataFrame()
 
-        # 转为 DataFrame，去重并按日期排序
+        # 转为 DataFrame，统一日期列类型后去重排序
         df = util.df(bars)
+        df["date"] = pd.to_datetime(df["date"])
         df = df.drop_duplicates(subset=["date"]).sort_values("date").reset_index(drop=True)
 
         # 截取指定时间范围内的数据
-        start_date = date(start_year, 1, 1)
-        end_date = date(end_year, 12, 31)
+        start_ts = pd.Timestamp(start_year, 1, 1)
+        end_ts = pd.Timestamp(end_year, 12, 31)
         df = df[
-            (df["date"] >= pd.Timestamp(start_date)) &
-            (df["date"] <= pd.Timestamp(end_date))
+            (df["date"] >= start_ts) &
+            (df["date"] <= end_ts)
         ].reset_index(drop=True)
 
         return df

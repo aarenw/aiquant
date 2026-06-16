@@ -1,16 +1,17 @@
 """数据预处理：标签创建、标准化、滑动窗口序列、时间分割
 
 处理流程：
-  1. create_trend_labels()  → 根据未来 N 日收益率生成三分类标签（ATR 自适应阈值）
+  1. create_trend_labels()  → ZigZag 提取极值，生成三分类趋势标签
   2. rolling_zscore_normalize() → 滚动 Z-score 标准化（无前视偏差）
   3. create_sequences()     → 滑动窗口生成 (seq_len, n_features) 序列
   4. time_based_split()     → 按时间切分 train/val/test（非随机切分）
 
-标签定义（horizon=5天，ATR 自适应阈值）：
-  - UP (2)：     future_return > atr_k × ATR_norm
-  - SIDEWAYS (1)：|future_return| ≤ atr_k × ATR_norm
-  - DOWN (0)：   future_return < -atr_k × ATR_norm
-  当 high/low 不可用时退回固定 threshold=1%
+标签定义（ZigZag + target2，预测下一交易日趋势翻转）：
+  - UP_TO_DOWN (0)：  target2 由正转负（由涨转跌）
+  - CONTINUE (1)：    target2 符号不变（维持趋势）
+  - DOWN_TO_UP (2)：  target2 由负转正（由跌转涨）
+
+  参考 MetaQuotes NeuroBook ZigZag 标签构造法。
 """
 
 from __future__ import annotations
@@ -19,64 +20,45 @@ from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-import talib
 
 from aiquant.config import DataConfig
+from aiquant.data.zigzag import create_zigzag_labels
 
 
 class TrendLabel:
     """趋势标签常量定义。"""
-    DOWN = 0      # 下跌
-    SIDEWAYS = 1  # 震荡
-    UP = 2        # 上涨
-    NAMES = ["DOWN", "SIDEWAYS", "UP"]
+    UP_TO_DOWN = 0  # 由涨转跌
+    CONTINUE = 1    # 维持趋势
+    DOWN_TO_UP = 2  # 由跌转涨
+    NAMES = ["UP_TO_DOWN", "CONTINUE", "DOWN_TO_UP"]
 
 
 def create_trend_labels(
     close: pd.Series,
     high: pd.Series | None = None,
     low: pd.Series | None = None,
-    horizon: int = 5,
+    depth: int = 5,
+    backstep: int = 3,
     threshold: float = 0.01,
     atr_k: float = 0.5,
 ) -> pd.Series:
-    """根据未来 horizon 天的收益率创建趋势标签。
-
-    当提供 high/low 时使用 ATR 自适应阈值：每个时间步的阈值 = atr_k × (ATR/close)，
-    最低不低于 0.5%，避免低波动时段产生过多噪声标签。
-    否则退回固定 threshold。
+    """基于 ZigZag 极值与 target2 符号翻转创建三分类标签。
 
     Args:
         close:     收盘价 Series
-        high:      最高价 Series（可选，用于计算 ATR）
-        low:       最低价 Series（可选，用于计算 ATR）
-        horizon:   预测时间跨度（交易日数）
-        threshold: 固定阈值（当 high/low 为 None 时使用）
-        atr_k:     ATR 阈值系数（自适应阈值 = atr_k × ATR_norm）
+        high:      最高价 Series（可选，默认用 close）
+        low:       最低价 Series（可选，默认用 close）
+        depth:     ZigZag Depth
+        backstep:  ZigZag Backstep
+        threshold: Deviation 固定比例回退值
+        atr_k:     ATR 自适应 Deviation 系数
 
     Returns:
-        标签 Series：0=DOWN, 1=SIDEWAYS, 2=UP, -1=无效
+        标签 Series：0=UP_TO_DOWN, 1=CONTINUE, 2=DOWN_TO_UP, -1=无效
     """
-    future_return = (close.shift(-horizon) / close - 1).values
-
-    if high is not None and low is not None:
-        atr = talib.ATR(
-            high.values.astype(np.float64),
-            low.values.astype(np.float64),
-            close.values.astype(np.float64),
-            timeperiod=14,
-        )
-        atr_norm = np.where(close.values != 0, atr / close.values, threshold)
-        # 每个时间步独立阈值，最低 0.5% 防止极低波动时全归 SIDEWAYS
-        thresh = np.maximum(atr_k * atr_norm, 0.005)
-    else:
-        thresh = np.full(len(close), threshold)
-
-    labels = np.full(len(close), TrendLabel.SIDEWAYS, dtype=np.int64)
-    labels[future_return > thresh] = TrendLabel.UP
-    labels[future_return < -thresh] = TrendLabel.DOWN
-    labels[np.isnan(future_return)] = -1  # 末尾 horizon 行标记为无效
-    return pd.Series(labels, index=close.index, dtype=np.int64)
+    return create_zigzag_labels(
+        close, high, low, depth, backstep, threshold, atr_k,
+    )
 
 
 def rolling_zscore_normalize(
@@ -127,7 +109,7 @@ def create_sequences(
         return np.empty((0, seq_len, features.shape[1])), np.empty(0, dtype=np.int64)
 
     X = np.stack([features[i : i + seq_len] for i in range(n - seq_len)])
-    y = labels[seq_len:]  # 序列结束后的标签（预测序列末日之后 horizon 天的趋势）
+    y = labels[seq_len:]  # 序列结束日对应的下一交易日趋势标签
     return X, y
 
 
@@ -170,7 +152,6 @@ def time_based_split(
     config = config or DataConfig()
     seq_len = config.seq_len
 
-    # 过滤掉无效标签（末尾 horizon 行）
     valid_mask = df[label_col] >= 0
     df_valid = df[valid_mask].reset_index(drop=True)
 
@@ -178,7 +159,6 @@ def time_based_split(
     train_end = pd.Timestamp(config.train_end)
     val_end = pd.Timestamp(config.val_end)
 
-    # 时间掩码
     train_mask = dates <= train_end
     val_mask = (dates > train_end) & (dates <= val_end)
     test_mask = dates > val_end
@@ -227,15 +207,13 @@ def prepare_single_stock(
     config = config or DataConfig()
 
     df = df.copy()
-    # 1. 根据未来 horizon 日收益率生成趋势标签（ATR 自适应阈值）
     df["label"] = create_trend_labels(
         df["close"], df["high"], df["low"],
-        config.horizon, config.trend_threshold, config.atr_k,
+        config.zigzag_depth, config.zigzag_backstep,
+        config.trend_threshold, config.atr_k,
     )
-    # 2. 滚动 Z-score 标准化特征列（不影响原始 OHLCV 和 label 列）
     df = rolling_zscore_normalize(df, feature_cols, config.norm_window)
 
-    # 3. 过滤掉因 lookback 产生 NaN 的行以及无效标签行
     initial_nans = df[feature_cols].isna().any(axis=1)
     valid_mask = ~initial_nans & (df["label"] >= 0)
     df = df[valid_mask].reset_index(drop=True)

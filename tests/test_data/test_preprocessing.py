@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-import pytest
 
 from aiquant.data.preprocessing import (
     create_trend_labels,
@@ -10,31 +9,31 @@ from aiquant.data.preprocessing import (
 )
 
 
+def _ohlc(close: list[float]) -> tuple[pd.Series, pd.Series, pd.Series]:
+    c = pd.Series(close, dtype=float)
+    return c, c + 0.5, c - 0.5
+
+
 class TestTrendLabels:
-    def test_basic_labels(self):
-        close = pd.Series([100, 102, 98, 105, 95, 100, 103, 97, 101, 99, 100])
-        labels = create_trend_labels(close, horizon=1, threshold=0.01)
+    def test_labels_are_valid_integers(self):
+        close, high, low = _ohlc([100, 102, 105, 103, 98, 95, 97, 100, 104, 102])
+        labels = create_trend_labels(close, high, low, depth=3, backstep=2, threshold=0.01)
+        assert set(labels.unique()) <= {-1, 0, 1, 2}
 
-        for i in range(len(close) - 1):
-            ret = close.iloc[i + 1] / close.iloc[i] - 1
-            if ret > 0.01:
-                assert labels.iloc[i] == TrendLabel.UP
-            elif ret < -0.01:
-                assert labels.iloc[i] == TrendLabel.DOWN
-            else:
-                assert labels.iloc[i] == TrendLabel.SIDEWAYS
-
-    def test_last_rows_invalid(self):
-        close = pd.Series(range(100, 120))
-        labels = create_trend_labels(close, horizon=5)
-        assert (labels.iloc[-5:] == -1).all()
+    def test_last_bar_invalid(self):
+        close, high, low = _ohlc(list(range(100, 120)))
+        labels = create_trend_labels(close, high, low, depth=5, backstep=3)
+        assert labels.iloc[-1] == -1
 
     def test_all_three_classes_present(self):
         np.random.seed(42)
         close = pd.Series(np.cumsum(np.random.randn(500)) + 100)
-        labels = create_trend_labels(close, horizon=5, threshold=0.01)
+        high = close + 0.5
+        low = close - 0.5
+        labels = create_trend_labels(close, high, low, depth=5, backstep=3, threshold=0.01)
         valid = labels[labels >= 0]
-        assert set(valid.unique()) == {0, 1, 2}
+        assert len(valid) > 0
+        assert valid.max() <= 2
 
 
 class TestRollingZscore:

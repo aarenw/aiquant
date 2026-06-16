@@ -22,7 +22,7 @@ class TrendDataset(Dataset):
         """
         Args:
             X: (n_samples, seq_len, n_features) float32 特征矩阵
-            y: (n_samples,) int64 趋势标签（0=下跌, 1=震荡, 2=上涨）
+            y: (n_samples,) int64 趋势标签（0=由涨转跌, 1=维持趋势, 2=由跌转涨）
         """
         self.X = torch.from_numpy(X).float()
         self.y = torch.from_numpy(y).long()

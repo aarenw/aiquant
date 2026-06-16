@@ -1,6 +1,6 @@
 # aiquant — 基于注意力机制的股票趋势预测
 
-通过 Interactive Brokers TWS 获取 S&P 500 全复权日线数据，使用从零实现的 Transformer Encoder（Multi-Head Self-Attention）预测未来 5 个交易日的价格趋势（上涨 / 震荡 / 下跌三分类）。
+通过 Interactive Brokers TWS 获取 S&P 500 全复权日线数据，使用从零实现的 Transformer Encoder（Multi-Head Self-Attention）预测未来 下一 个交易日的价格趋势（由涨转跌， 维持趋势， 由跌转涨）。
 
 ---
 
@@ -66,7 +66,7 @@ aiquant/
       ↓  时间维度均值池化
 (batch, 64)
       ↓  MLP 分类头（Linear → GELU → Dropout → Linear）
-(batch, 3)              — 输出 logits：0=下跌 / 1=震荡 / 2=上涨
+(batch, 3)              — 输出 logits：0=由涨转跌 / 1=维持趋势 / 2=由跌转涨
 ```
 
 **参数量**：默认配置约 120K 参数，可在单 GPU/MPS 上快速训练。
@@ -83,7 +83,7 @@ aiquant/
 | 时间跨度 | 2010 年至今 |
 | K 线周期 | 日线，仅正常交易时段（useRTH=True） |
 | 特征数量 | 约 33 维（价格 + 技术指标 + 时间特征） |
-| 预测目标 | 未来 5 个交易日收益率：>+1% 为上涨，<-1% 为下跌，其余震荡 |
+| 预测目标 | 下一交易日趋势：ZigZag 过滤噪声后，target2 符号翻转（由涨转跌 / 维持 / 由跌转涨） |
 
 ---
 
@@ -184,8 +184,9 @@ DataConfig(
     start_year=2010,
     what_to_show="ADJUSTED_LAST",  # 全复权
     seq_len=60,                    # 60日回看窗口
-    horizon=5,                     # 预测5日后趋势
-    trend_threshold=0.01,          # ±1% 阈值
+    zigzag_depth=5,                # ZigZag Depth（极值搜索窗口）
+    zigzag_backstep=3,             # ZigZag Backstep（极值最小间隔）
+    trend_threshold=0.01,          # Deviation 固定回退比例
     train_end="2020-12-31",
     val_end="2022-12-31",
 )

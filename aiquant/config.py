@@ -45,9 +45,10 @@ class DataConfig:
     what_to_show: str = "ADJUSTED_LAST"  # 全复权价格（含拆股+分红调整）
     use_rth: bool = True            # True=仅使用正常交易时段数据
     seq_len: int = 60               # 模型输入序列长度（交易日数）
-    horizon: int = 5                # 预测未来 N 个交易日的趋势
-    trend_threshold: float = 0.01  # 固定阈值回退值（ATR 不可用时使用）
-    atr_k: float = 0.5             # ATR 自适应阈值系数（阈值 = atr_k × ATR_norm）
+    zigzag_depth: int = 5           # ZigZag Depth：寻找极值的 K 线窗口
+    zigzag_backstep: int = 3        # ZigZag Backstep：相邻极值最小间隔
+    trend_threshold: float = 0.01  # ZigZag Deviation 固定回退比例（ATR 不可用时）
+    atr_k: float = 0.5             # ATR 自适应 Deviation 系数（= atr_k × ATR_norm × close）
     norm_window: int = 252          # 滚动 Z-score 标准化窗口（约1年）
     train_end: str = "2020-12-31"   # 训练集截止日期
     val_end: str = "2022-12-31"     # 验证集截止日期（之后为测试集）

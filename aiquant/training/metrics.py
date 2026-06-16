@@ -6,7 +6,7 @@
 - 混淆矩阵
 - 分类报告（含各类别详细指标）
 
-三分类定义：0=DOWN（下跌）, 1=SIDEWAYS（震荡）, 2=UP（上涨）
+三分类定义：0=UP_TO_DOWN（由涨转跌）, 1=CONTINUE（维持趋势）, 2=DOWN_TO_UP（由跌转涨）
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ from sklearn.metrics import (
     precision_score,
     recall_score,
 )
+
+from aiquant.data.preprocessing import TrendLabel
 
 
 @dataclass
@@ -46,12 +48,12 @@ def compute_metrics(
     Args:
         y_true:      真实标签数组
         y_pred:      预测标签数组
-        class_names: 类别名称列表，默认为 ["DOWN", "SIDEWAYS", "UP"]
+        class_names: 类别名称列表，默认为 TrendLabel.NAMES
 
     Returns:
         ClassificationMetrics 数据类
     """
-    class_names = class_names or ["DOWN", "SIDEWAYS", "UP"]
+    class_names = class_names or TrendLabel.NAMES
 
     return ClassificationMetrics(
         accuracy=accuracy_score(y_true, y_pred),

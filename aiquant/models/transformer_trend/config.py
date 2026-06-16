@@ -16,4 +16,4 @@ class TransformerConfig:
     d_ff: int = 512        # 前馈网络中间层维度（256→512，保持 d_model 的 4 倍）
     dropout: float = 0.1   # Dropout 比例，用于正则化
     seq_len: int = 60      # 输入序列长度（与 DataConfig.seq_len 保持一致）
-    n_classes: int = 3     # 输出类别数：0=DOWN, 1=SIDEWAYS, 2=UP
+    n_classes: int = 3     # 输出类别数：0=UP_TO_DOWN, 1=CONTINUE, 2=DOWN_TO_UP
